@@ -1,0 +1,117 @@
+
+// Neuron Net DJIA
+// Developer's Site: forexroboteasy.com
+// Development: Forex Robot Easy Team
+
+// Import necessary libraries
+#include <Python.h>
+#include <numpy/arrayobject.h>
+#include <tensorflow/c/c_api.h>
+#include <mql5>
+
+// Include necessary headers
+#include 'neural_network.h'
+#include 'data_processing.h'
+#include 'trading_functions.h'
+
+// Define global variables
+double last_prediction;
+double current_price;
+
+// Define necessary constants
+const double STOP_LOSS = 0.02;
+const double TAKE_PROFIT = 0.04;
+
+// Initialize the trading robot
+int OnInit()
+{
+    // Connect to Python interpreter
+    Py_Initialize();
+    import_array();
+
+    // Load the trained neural network model
+    PyObject* model = load_neural_network_model('model.h5');
+
+    // Check if the model is loaded successfully
+    if (model == NULL)
+    {
+        Print('Failed to load the neural network model!');
+        return INIT_FAILED;
+    }
+
+    // Retrieve the current price from the market
+    current_price = MarketInfo(Symbol(), MODE_BID);
+
+    // Initialize the last prediction variable
+    last_prediction = 0.0;
+
+    return INIT_SUCCEEDED;
+}
+
+// Execute trading logic on each tick
+void OnTick()
+{
+    // Retrieve the latest price from the market
+    double latest_price = MarketInfo(Symbol(), MODE_BID);
+
+    // Check if the price has changed
+    if (latest_price != current_price)
+    {
+        // Store the current price
+        current_price = latest_price;
+
+        // Prepare the input data for prediction
+        double* input_data = prepare_input_data(current_price, last_prediction);
+
+        // Make the prediction using the neural network model
+        double prediction = make_prediction(model, input_data);
+
+        // Update the last prediction variable
+        last_prediction = prediction;
+
+        // Generate trading signals based on the prediction
+        int signal = generate_trading_signal(prediction);
+
+        // Execute the necessary trading actions
+        execute_trading_actions(signal);
+
+        // Free the memory allocated for the input data
+        free(input_data);
+    }
+}
+
+// Handle trading actions based on prediction signals
+void execute_trading_actions(int signal)
+{
+    if (signal == BUY_SIGNAL)
+    {
+        // Place a buy order
+        double entry_price = MarketInfo(Symbol(), MODE_ASK);
+        double stop_loss = entry_price - (STOP_LOSS * entry_price);
+        double take_profit = entry_price + (TAKE_PROFIT * entry_price);
+
+        OrderSend(Symbol(), OP_BUY, 1.0, entry_price, 2, stop_loss, take_profit);
+    }
+    else if (signal == SELL_SIGNAL)
+    {
+        // Place a sell order
+        double entry_price = MarketInfo(Symbol(), MODE_BID);
+        double stop_loss = entry_price + (STOP_LOSS * entry_price);
+        double take_profit = entry_price - (TAKE_PROFIT * entry_price);
+
+        OrderSend(Symbol(), OP_SELL, 1.0, entry_price, 2, stop_loss, take_profit);
+    }
+}
+
+// Clean up resources on deinitialization
+void OnDeinit(const int reason)
+{
+    // Close any open positions
+    CloseAll();
+
+    // Unload the neural network model
+    unload_neural_network_model(model);
+
+    // Disconnect from the Python interpreter
+    Py_Finalize();
+}
